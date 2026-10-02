@@ -33,6 +33,7 @@ from homeassistant.const import (
 )
 
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import entity_platform
 
 DEFAULT_NAME = "Libratone Zipp"
 DEVICE_CLASS_SPEAKER = "speaker"
@@ -74,6 +75,18 @@ async def async_setup_entry(
     zipp_client = hass.data[DOMAIN][entry.entry_id]
     name = entry.title or entry.data.get(CONF_NAME) or DEFAULT_NAME
     async_add_entities([LibratoneZippDevice(zipp_client, name, has_device=True)])
+
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
+        "set_favorite",
+        {
+            vol.Required("favorite"): vol.All(vol.Coerce(int), vol.Range(min=1, max=5)),
+            vol.Required("station_id"): cv.string,
+            vol.Optional("name"): cv.string,
+            vol.Optional("channel_type", default="vtuner"): cv.string,
+        },
+        "async_set_favorite",
+    )
 
 def setup_platform(hass, config, add_entities, discover_info=None):
     """Set up Libratone Zipp"""
@@ -249,8 +262,9 @@ class LibratoneZippDevice(MediaPlayerEntity):
 
     @property
     def source_list(self):
-        """List of available input sources."""
-        return self._source_list
+        """Station names of the presets (slot numbers until the speaker has reported them)."""
+        names = [c.get("channel_name") for c in getattr(self.zipp, "favorites", [])]
+        return [n for n in names if n] or self._source_list
 
     @property
     def sound_mode(self):
@@ -321,8 +335,15 @@ class LibratoneZippDevice(MediaPlayerEntity):
         return self.zipp.prev()
 
     def select_source(self, source):
-        """Select input source."""
-        return self.zipp.favorite_play(source)
+        """Select a preset by station name or by slot number ("1".."5")."""
+        slot = getattr(self.zipp, "favorite_slot_by_name", lambda _name: None)(source)
+        return self.zipp.favorite_play(str(slot) if slot is not None else source)
+
+    async def async_set_favorite(self, favorite, station_id, name=None, channel_type="vtuner"):
+        """Service libratone_zipp.set_favorite: store a station in preset `favorite` (1-5)."""
+        await self.hass.async_add_executor_job(
+            self.zipp.favorite_set, favorite, station_id, name or f"Station {station_id}", channel_type
+        )
 
     def select_sound_mode(self, sound_mode):
         """ "Select sound mode."""

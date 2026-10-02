@@ -9,6 +9,7 @@ SET = command type 2, both sent to speaker:7777, answers arrive on 7778/3333.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import threading
@@ -29,6 +30,8 @@ CMD_LED_LEVEL = 296            # data: "0".."2", LED brightness level
 CMD_VOICE_PROMPT = 293         # data: "1" on, "0" off
 CMD_STEREO_SET = 512           # data: "0" stereo, "1" left, "2" right
 CMD_STEREO_GET = 515           # answer on 515 (GET) and 512 (SET/notify)
+CMD_CHANNEL_SET = 276          # data: JSON {"channel_id", "channel_identity", "channel_name", "channel_type"}
+CMD_FW_UPDATE = 66             # GET with data "0" -> {"state": n, "err": n}
 
 # Commands whose answers are cached in ZippExtended.extra
 _EXTRA_REPLY_KEYS = {
@@ -37,6 +40,18 @@ _EXTRA_REPLY_KEYS = {
     CMD_VOICE_PROMPT: "voice_prompt",
     CMD_STEREO_GET: "stereo_type",
     CMD_STEREO_SET: "stereo_type",
+    CMD_FW_UPDATE: "fw_update",
+}
+
+# Firmware update state reported by command 66 ({"state": n, "err": n}); names from the app's log texts
+FW_UPDATE_STATES = {
+    0: "none",            # no valid update package
+    1: "available",       # valid package found, not downloaded yet
+    2: "downloading",
+    3: "ready",           # downloaded, can be installed
+    4: "updating",        # installing, the speaker restarts
+    5: "updated",         # finished after the reboot
+    6: "mandatory",       # mandatory package ready
 }
 
 STEREO_TYPES = {"0": "stereo", "1": "left", "2": "right"}
@@ -107,6 +122,8 @@ class ZippExtended(LibratoneZipp):
             lambda: self.get_control_command(command=CMD_LED_LEVEL),
             lambda: self.get_control_command(command=CMD_VOICE_PROMPT),
             lambda: self.get_control_command(command=CMD_STEREO_GET),
+            lambda: self.get_control_command(command=CMD_FW_UPDATE, data="0"),
+            self.channel_get,  # favorites (stations 1-5)
         )
         for getter in getters:
             getter()
@@ -190,6 +207,58 @@ class ZippExtended(LibratoneZipp):
         ok = self.set_control_command(CMD_STEREO_SET, type_id)
         self._confirm(lambda: self.get_control_command(CMD_STEREO_GET))
         return ok
+
+    # --- favorites (preset stations 1-5) -------------------------------------
+
+    @property
+    def favorites(self) -> list[dict]:
+        """The speaker's preset stations: dicts with channel_id, channel_name, channel_identity, channel_type."""
+        channels = getattr(self, "_channel_json", None)
+        if not isinstance(channels, list):
+            return []
+        return [c for c in channels if isinstance(c, dict) and c.get("channel_id") is not None]
+
+    def favorite_name(self, slot: int) -> str | None:
+        for channel in self.favorites:
+            if str(channel.get("channel_id")) == str(slot):
+                return channel.get("channel_name")
+        return None
+
+    def favorite_slot_by_name(self, name: str) -> int | None:
+        for channel in self.favorites:
+            if channel.get("channel_name") == name:
+                return int(channel["channel_id"])
+        return None
+
+    def favorite_set(self, slot: int, station_id: str, name: str, channel_type: str = "vtuner"):
+        """Store a station in preset `slot`. `station_id` is the vTuner id for channel_type 'vtuner'.
+
+        json.dumps escapes non-ASCII characters (\u00e4 ...), which the speaker decodes; the
+        library can only send ASCII.
+        """
+        entry = {
+            "channel_id": int(slot),
+            "channel_identity": str(station_id),
+            "channel_name": name,
+            "channel_type": channel_type,
+        }
+        ok = self.set_control_command(CMD_CHANNEL_SET, json.dumps(entry))
+        self._confirm(self.channel_get)
+        return ok
+
+    # --- firmware ------------------------------------------------------------
+
+    @property
+    def firmware_update(self) -> tuple[str, int | None] | None:
+        """(state name, error code) from command 66, e.g. ('none', 0). None until the speaker answered."""
+        raw = self.get_extra("fw_update")
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+            return FW_UPDATE_STATES.get(int(data["state"]), "unknown"), data.get("err")
+        except (ValueError, KeyError, TypeError):
+            return None
 
     # --- parsed read-only values -------------------------------------------
 

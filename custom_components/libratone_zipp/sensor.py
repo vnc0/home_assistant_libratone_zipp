@@ -1,4 +1,4 @@
-"""Battery, Wi-Fi signal, firmware and serial number sensors."""
+"""Battery, Wi-Fi signal, firmware, firmware update state and serial number sensors."""
 from __future__ import annotations
 
 from homeassistant.components.sensor import (
@@ -18,6 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .entity import SCAN_INTERVAL, LibratoneZippEntity  # noqa: F401  (SCAN_INTERVAL is read by HA)
+from .extras import FW_UPDATE_STATES
 
 
 async def async_setup_entry(
@@ -31,6 +32,7 @@ async def async_setup_entry(
             ZippSignalSensor(zipp, name),
             ZippFirmwareSensor(zipp, name),
             ZippSerialSensor(zipp, name),
+            ZippFirmwareUpdateSensor(zipp, name),
         ]
     )
 
@@ -83,3 +85,24 @@ class ZippSerialSensor(LibratoneZippEntity, SensorEntity):
     @property
     def native_value(self):
         return self._zipp.serialnumber
+
+
+class ZippFirmwareUpdateSensor(LibratoneZippEntity, SensorEntity):
+    """Update state reported by the speaker itself (it checks for packages on its own)."""
+
+    _key = "firmware_update"
+    _attr_name = "Firmware update"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = sorted(set(FW_UPDATE_STATES.values()) | {"unknown"})
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:update"
+
+    @property
+    def native_value(self):
+        state = self._zipp.firmware_update
+        return state[0] if state else None
+
+    @property
+    def extra_state_attributes(self):
+        state = self._zipp.firmware_update
+        return {"error_code": state[1] if state else None, "installed_version": self._zipp.version}

@@ -34,7 +34,8 @@ immediately after a change from Home Assistant.
 | sensor | Battery | 256 / 257 | % |
 | binary_sensor | Charging | 1284 | the app treats `1` as charging; the raw value is an attribute |
 | sensor (diagnostic) | Wi-Fi signal | 529 | dBm, `quality_percent` attribute; payload `ssid,rssi,quality/max` |
-| sensor (diagnostic) | Firmware, Serial number | 5, 769 | serial number is disabled by default |
+| sensor (diagnostic) | Firmware, Firmware update, Serial number | 5, 66, 769 | serial number is disabled by default |
+| button | Favorite 1-5 | 277 | plays the preset; see Favorites below |
 | switch | Mute | 40 (`MUTE` / `UNMUTE`), 520 | also available as media player mute |
 | number | Sleep timer | 15 | minutes, 0 = off; payload `2<seconds>` to set, `F0` to cancel |
 | number (config) | Maximum volume | 300 | speaker-side volume cap, 0-100 |
@@ -51,6 +52,30 @@ Implementation notes:
 * The speaker silently drops GETs that arrive in a burst, so a poll cycle spaces them out by 0.3 s.
 * Commands that were seen on the speaker but are not used yet: 301 (LED percent), 613 (LED all off),
   1285 (private mode), 1541 (play mode), 545 (room correction), 10 / 128 / 123 (output source).
+
+### Favorites (preset stations)
+
+The speaker has five preset slots (command 275 reads them, 276 writes one):
+
+```json
+{"channel_id": 1, "channel_identity": "77320", "channel_name": "Klassik Radio Classic Dreams", "channel_type": "vtuner"}
+```
+
+* The media player's `source_list` now contains the station names; `select_source` accepts a name or a slot number.
+* `button.<name>_favorite_1` ... `_5` play a preset; the station name is the `station` attribute (the
+  entity name stays fixed so entity ids do not change when a preset is replaced).
+* Service `libratone_zipp.set_favorite` (`favorite` 1-5, `station_id`, optional `name` and `channel_type`,
+  default `vtuner`) replaces a preset. `station_id` is the vTuner station id, the same value the speaker
+  reports as `channel_identity` for existing presets. There is no local station search: the app browses
+  stations through the vendor's cloud API, which this integration does not use.
+
+### Firmware
+
+`Firmware` is the version number reported by command 5 (1536 on the tested Zipp 2). `Firmware update`
+(diagnostic) shows what the speaker itself reports: command 66 with data `0` answers
+`{"state": n, "err": n}`; states are `none` (0), `available` (1), `downloading` (2), `ready` (3),
+`updating` (4), `updated` (5) and `mandatory` (6), taken from the app's log texts. The integration only
+reads this state; installing is not implemented (the app starts it with command 66 and data `1`).
 
 ## Features
 
