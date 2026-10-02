@@ -154,7 +154,7 @@ tap_action:
 * [ ] Make the module async (needs a rewrite of the Python library)
 * [ ] Submit it for official integration (needs an async library on PyPI and tests)
 * [ ] Add support for other Libratone speakers (only a Zipp 2 was available for testing)
-* [ ] Set the input source (the app uses commands 121, 122 and 537, depending on the model; not understood well enough to test safely)
+* [ ] Set the input source. Tested on a Zipp 2 while a preset played: commands 537 (line in) and 121 (Bluetooth) are answered with status 1 but did not change the active source. Command 122 only switches the *output* (Bluetooth / speaker / AUX out), so it is not offered either. Details in the [library README](https://github.com/vnc0/python_libratone_zipp#input-source).
 * [ ] Install firmware updates
 * [ ] Search stations
 * [ ] Set the speaker color
