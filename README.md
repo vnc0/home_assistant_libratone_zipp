@@ -22,6 +22,36 @@ This aims to control a Libratone Zipp speaker within [Home Assistant](https://ww
 
 Note: if you're using Docker/devcontainer, you need to forward `3333/udp` and `7778/udp`. 
 
+## Additional entities (4.2.0)
+
+Besides the media player, each speaker now gets a device with these entities. They were found by
+decompiling the official Android app (`com.libratone.v3.model.LSSDPNode`, `luci.MIDCONST`) and
+verified on a Zipp 2 (firmware 1536). Values are read from the speaker every 60 s and updated
+immediately after a change from Home Assistant.
+
+| Platform | Entity | Command | Notes |
+|-|-|-|-|
+| sensor | Battery | 256 / 257 | % |
+| binary_sensor | Charging | 1284 | the app treats `1` as charging; the raw value is an attribute |
+| sensor (diagnostic) | Wi-Fi signal | 529 | dBm, `quality_percent` attribute; payload `ssid,rssi,quality/max` |
+| sensor (diagnostic) | Firmware, Serial number | 5, 769 | serial number is disabled by default |
+| switch | Mute | 40 (`MUTE` / `UNMUTE`), 520 | also available as media player mute |
+| number | Sleep timer | 15 | minutes, 0 = off; payload `2<seconds>` to set, `F0` to cancel |
+| number (config) | Maximum volume | 300 | speaker-side volume cap, 0-100 |
+| number (config) | LED level | 296 | 0-2 |
+| switch (config) | Voice prompts | 293 | `1` / `0` |
+| select | Room setting | 517 / 519 / 525 | names come from the speaker |
+| select (config) | Speaker channel | 515 / 512 | `0` stereo, `1` left, `2` right (for two paired speakers) |
+
+Implementation notes:
+
+* `extras.py` subclasses the library's `LibratoneZipp` (`ZippExtended`) and caches the replies for the
+  extra commands. The upstream receive loop does not catch exceptions, so one malformed reply
+  (an empty Player JSON) used to stop the result thread; `ZippExtended` catches them.
+* The speaker silently drops GETs that arrive in a burst, so a poll cycle spaces them out by 0.3 s.
+* Commands that were seen on the speaker but are not used yet: 301 (LED percent), 613 (LED all off),
+  1285 (private mode), 1541 (play mode), 545 (room correction), 10 / 128 / 123 (output source).
+
 ## Features
 
 ### Functionality coverage
@@ -60,11 +90,11 @@ Other functionalities - Not planned right now:
     * [ ] Retrieve current playback source
     * [ ] Retrieve media type: bluetooth, spotify, aux, radio, ...
 * Standby
-    * [ ] Set a standby timer
-    * [ ] Retrieve a standby timer
+    * [x] Set a standby timer (number entity `Sleep timer`)
+    * [x] Retrieve a standby timer
 * Voicing & Room Setting
-    * [ ] Set Room Setting
-    * [ ] Retrieve current Room Setting
+    * [x] Set Room Setting (select entity `Room setting`)
+    * [x] Retrieve current Room Setting
 * Favorites
     * [ ] Play a favorite (proper title)
     * [ ] Set a Favorite
@@ -74,7 +104,7 @@ Other functionalities - Not planned right now:
     * [ ] Set Source
     * [ ] Retrieve current source
 * Multi-room
-    * [ ] Set speaker mode (stereo, left, right)
+    * [x] Set speaker mode (stereo, left, right) (select entity `Speaker channel`)
     * [ ] Add better media player cards
 
 ## Acknowledgment

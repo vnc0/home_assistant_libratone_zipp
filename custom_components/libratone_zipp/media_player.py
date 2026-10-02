@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN
+from .entity import device_info
 from homeassistant.const import CONF_NAME
 
 
@@ -109,6 +110,7 @@ class LibratoneZippDevice(MediaPlayerEntity):
         """Initialize a new Libratone Zipp device"""
         self.zipp = zipp_client
         self._name = name
+        self._device_name = name  # fixed name for the device registry (self._name follows the speaker)
 
         self._device_type = DEVICE_CLASS_SPEAKER
 
@@ -204,9 +206,27 @@ class LibratoneZippDevice(MediaPlayerEntity):
         return self._volume_level
 
     @property
+    def device_info(self):
+        """Group this entity with the sensors/numbers/switches of the same speaker."""
+        if not getattr(self.zipp, "host", None):
+            return None
+        return device_info(self.zipp, self._device_name)
+
+    @property
     def supported_features(self):
         """Flag media player features that are supported."""
-        return SUPPORT_LIBRATONE_ZIPP | MediaPlayerEntityFeature.GROUPING
+        features = SUPPORT_LIBRATONE_ZIPP | MediaPlayerEntityFeature.GROUPING
+        if hasattr(self.zipp, "mute"):  # ZippExtended; the plain library cannot mute
+            features |= MediaPlayerEntityFeature.VOLUME_MUTE
+        return features
+
+    @property
+    def is_volume_muted(self):
+        return getattr(self.zipp, "is_muted", None)
+
+    def mute_volume(self, mute):
+        """Mute or unmute the speaker."""
+        return self.zipp.mute() if mute else self.zipp.unmute()
 
     @property
     def media_content_type(self):
