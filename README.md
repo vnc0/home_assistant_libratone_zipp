@@ -53,6 +53,44 @@ Implementation notes:
 * Commands that were seen on the speaker but are not used yet: 301 (LED percent), 613 (LED all off),
   1285 (private mode), 1541 (play mode), 545 (room correction), 10 / 128 / 123 (output source).
 
+### Playback source, shuffle and repeat
+
+Command 10 returns the active source as bytes: byte 0 is the source code (the ASCII value of the app's
+`SourceInfo` constants, `0` none, `1` AirPlay, `2`/`3` DLNA, `4` Spotify, `5` USB, `<` line in, `?` preset
+station, `A` Bluetooth, `B` AUX, ...) and bytes 3-6 are little-endian ability flags. The `Playback source`
+sensor maps the code to `none`, `airplay`, `dlna`, `spotify`, `usb`, `line_in`, `preset`, `bluetooth`, `aux`, ...
+and the media player's `source` shows the station name while a preset plays.
+
+Command 1541 holds the play mode: `0` normal, `1` shuffle + repeat all, `2` repeat one, `3` repeat all,
+`6` shuffle, `7` shuffle + repeat one. The media player offers shuffle and repeat only while the active
+source sets ability flag 262144 (bit 18). Read and write were checked on a Zipp 2 while idle; no source
+that supports shuffle or repeat (USB, DLNA, Bluetooth) was tested.
+
+### Lovelace example
+
+A tile for the media player (tap opens a bubble-card popup `#zipp`), and a favorites list that shows the
+current station names from the `Favorite` buttons:
+
+```yaml
+type: tile
+entity: media_player.zipp2
+features:
+  - type: media-player-playback
+    controls: [on_off, previous, play_pause, next]
+  - type: media-player-volume-slider
+state_content: [state, media_title, media_artist]
+tap_action: {action: navigate, navigation_path: "#zipp"}
+---
+type: tile
+entity: button.zipp2_favorite_1
+name: Favorite 1
+state_content: [station]
+tap_action:
+  action: perform-action
+  perform_action: button.press
+  target: {entity_id: button.zipp2_favorite_1}
+```
+
 ### Favorites (preset stations)
 
 The speaker has five preset slots (command 275 reads them, 276 writes one):
@@ -112,8 +150,8 @@ Other functionalities - Not planned right now:
     * [ ] Submit it for official integration!
     * [ ] Add support for other libratone speakers
 * Current Playback info
-    * [ ] Retrieve current playback source
-    * [ ] Retrieve media type: bluetooth, spotify, aux, radio, ...
+    * [x] Retrieve current playback source (sensor `Playback source`, media player `source`)
+    * [x] Retrieve media type: bluetooth, spotify, aux, radio, ... (same sensor)
 * Standby
     * [x] Set a standby timer (number entity `Sleep timer`)
     * [x] Retrieve a standby timer
@@ -121,16 +159,16 @@ Other functionalities - Not planned right now:
     * [x] Set Room Setting (select entity `Room setting`)
     * [x] Retrieve current Room Setting
 * Favorites
-    * [ ] Play a favorite (proper title)
-    * [ ] Set a Favorite
+    * [x] Play a favorite (proper title) (station names in the source list, `Favorite 1-5` buttons)
+    * [x] Set a Favorite (service `libratone_zipp.set_favorite`)
 * Extended current playback info
-    * [ ] Set extended playback status: shuffle, repeat
-    * [ ] Retrieve extended playback status: shuffle, repeat
-    * [ ] Set Source
-    * [ ] Retrieve current source
+    * [x] Set extended playback status: shuffle, repeat (only offered while the source supports it)
+    * [x] Retrieve extended playback status: shuffle, repeat
+    * [ ] Set Source (command 121 / 122 looked at but not understood well enough to test safely)
+    * [x] Retrieve current source
 * Multi-room
     * [x] Set speaker mode (stereo, left, right) (select entity `Speaker channel`)
-    * [ ] Add better media player cards
+    * [x] Add better media player cards (example above; the integration itself ships no card)
 
 ## Acknowledgment
 

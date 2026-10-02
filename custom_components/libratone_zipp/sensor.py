@@ -18,7 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .entity import SCAN_INTERVAL, LibratoneZippEntity  # noqa: F401  (SCAN_INTERVAL is read by HA)
-from .extras import FW_UPDATE_STATES
+from .extras import FW_UPDATE_STATES, SOURCE_TYPE_OPTIONS
 
 
 async def async_setup_entry(
@@ -33,6 +33,7 @@ async def async_setup_entry(
             ZippFirmwareSensor(zipp, name),
             ZippSerialSensor(zipp, name),
             ZippFirmwareUpdateSensor(zipp, name),
+            ZippSourceSensor(zipp, name),
         ]
     )
 
@@ -106,3 +107,17 @@ class ZippFirmwareUpdateSensor(LibratoneZippEntity, SensorEntity):
     def extra_state_attributes(self):
         state = self._zipp.firmware_update
         return {"error_code": state[1] if state else None, "installed_version": self._zipp.version}
+
+
+class ZippSourceSensor(LibratoneZippEntity, SensorEntity):
+    """What the speaker plays from: preset station, AirPlay, Bluetooth, AUX, ..."""
+
+    _key = "playback_source"
+    _attr_name = "Playback source"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = SOURCE_TYPE_OPTIONS
+    _attr_icon = "mdi:import"
+
+    @property
+    def native_value(self):
+        return self._zipp.source_type

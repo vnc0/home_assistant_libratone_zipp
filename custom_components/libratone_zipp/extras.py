@@ -32,6 +32,8 @@ CMD_STEREO_SET = 512           # data: "0" stereo, "1" left, "2" right
 CMD_STEREO_GET = 515           # answer on 515 (GET) and 512 (SET/notify)
 CMD_CHANNEL_SET = 276          # data: JSON {"channel_id", "channel_identity", "channel_name", "channel_type"}
 CMD_FW_UPDATE = 66             # GET with data "0" -> {"state": n, "err": n}
+CMD_SOURCE_INFO = 10           # answer: bytes, see SOURCE_TYPES
+CMD_PLAY_MODE = 1541           # data: see PLAY_MODES
 
 # Commands whose answers are cached in ZippExtended.extra
 _EXTRA_REPLY_KEYS = {
@@ -41,6 +43,12 @@ _EXTRA_REPLY_KEYS = {
     CMD_STEREO_GET: "stereo_type",
     CMD_STEREO_SET: "stereo_type",
     CMD_FW_UPDATE: "fw_update",
+    CMD_PLAY_MODE: "play_mode",
+}
+
+# Commands whose answers are binary and cached untouched in ZippExtended.extra_raw
+_EXTRA_RAW_KEYS = {
+    CMD_SOURCE_INFO: "source_info",
 }
 
 # Firmware update state reported by command 66 ({"state": n, "err": n}); names from the app's log texts
@@ -60,6 +68,44 @@ STEREO_TYPE_IDS = {v: k for k, v in STEREO_TYPES.items()}
 # Sleep timer: the library stores remaining seconds, 2 bytes little endian
 MAX_TIMER_SECONDS = 65535
 
+# Source info (command 10): byte 0 = source code, bytes 3-6 = ability flags (little endian).
+# Codes are ASCII values of the app's SourceInfo constants.
+SOURCE_TYPES = {
+    48: "none",
+    49: "airplay",
+    50: "dlna",
+    51: "dlna",
+    52: "spotify",
+    53: "usb",
+    54: "sd_card",
+    57: "tunein",
+    59: "group",           # follower in a multi-room group
+    60: "line_in",
+    62: "url",
+    63: "preset",          # favorite / preset station
+    65: "bluetooth",
+    66: "aux",
+    68: "usb",
+    85: "bluetooth",
+    88: "voice",
+    89: "voice",
+    93: "voice",
+    105: "bluetooth",
+}
+SOURCE_TYPE_OPTIONS = sorted(set(SOURCE_TYPES.values()) | {"other"})
+_ABILITY_SET_PLAY_MODE = 262144
+
+# Play mode (command 1541): value -> (shuffle, repeat) as in the app's PlayMode enum
+PLAY_MODES = {
+    "0": (False, "off"),
+    "1": (True, "all"),
+    "2": (False, "one"),
+    "3": (False, "all"),
+    "6": (True, "off"),
+    "7": (True, "one"),
+}
+PLAY_MODE_IDS = {mode: mode_id for mode_id, mode in PLAY_MODES.items()}
+
 # Seconds between consecutive GETs of one poll cycle (the speaker drops bursts)
 _GET_SPACING = 0.3
 
@@ -73,6 +119,7 @@ class ZippExtended(LibratoneZipp):
     def __init__(self, host):
         # Must exist before the parent starts its keep-alive thread
         self.extra: dict[str, str] = {}
+        self.extra_raw: dict[str, bytes] = {}
         self._extra_lock = threading.Lock()
         super().__init__(host)
 
@@ -88,6 +135,10 @@ class ZippExtended(LibratoneZipp):
                     if value != "":
                         with self._extra_lock:
                             self.extra[key] = value
+                raw_key = _EXTRA_RAW_KEYS.get(command)
+                if raw_key is not None and len(packet) > 10:
+                    with self._extra_lock:
+                        self.extra_raw[raw_key] = bytes(packet[10:])
         except Exception:  # never break the parent's message handling
             _LOGGER.debug("Could not parse extra Zipp message", exc_info=True)
         try:
@@ -124,6 +175,8 @@ class ZippExtended(LibratoneZipp):
             lambda: self.get_control_command(command=CMD_STEREO_GET),
             lambda: self.get_control_command(command=CMD_FW_UPDATE, data="0"),
             self.channel_get,  # favorites (stations 1-5)
+            lambda: self.get_control_command(command=CMD_SOURCE_INFO),
+            lambda: self.get_control_command(command=CMD_PLAY_MODE),
         )
         for getter in getters:
             getter()
@@ -294,3 +347,46 @@ class ZippExtended(LibratoneZipp):
         if not match or int(match.group(2)) == 0:
             return None
         return round(100 * int(match.group(1)) / int(match.group(2)))
+
+    # --- playback source ----------------------------------------------------
+
+    @property
+    def source_code(self) -> int | None:
+        """Active source as the app's code (first byte of command 10), e.g. 63 = preset station."""
+        raw = self.extra_raw.get("source_info")
+        return raw[0] if raw else None
+
+    @property
+    def source_type(self) -> str | None:
+        """Friendly name of the active source (see SOURCE_TYPES), None until the speaker answered."""
+        code = self.source_code
+        return None if code is None else SOURCE_TYPES.get(code, "other")
+
+    @property
+    def supports_play_mode(self) -> bool:
+        """Bit 18 of the source's ability flags: the source accepts shuffle / repeat."""
+        raw = self.extra_raw.get("source_info")
+        if not raw or len(raw) < 7:
+            return False
+        ability = int.from_bytes(raw[3:7], "little")
+        return bool(ability & _ABILITY_SET_PLAY_MODE)
+
+    # --- shuffle / repeat ---------------------------------------------------
+
+    @property
+    def shuffle(self) -> bool | None:
+        mode = PLAY_MODES.get(self.get_extra("play_mode") or "")
+        return None if mode is None else mode[0]
+
+    @property
+    def repeat(self) -> str | None:
+        """'off', 'one' or 'all'."""
+        mode = PLAY_MODES.get(self.get_extra("play_mode") or "")
+        return None if mode is None else mode[1]
+
+    def play_mode_set(self, shuffle: bool, repeat: str):
+        mode_id = PLAY_MODE_IDS[(bool(shuffle), repeat)]
+        self._remember("play_mode", mode_id)
+        ok = self.set_control_command(CMD_PLAY_MODE, mode_id)
+        self._confirm(lambda: self.get_control_command(CMD_PLAY_MODE))
+        return ok

@@ -20,6 +20,7 @@ from homeassistant.const import CONF_NAME
 from homeassistant.components.media_player.const import (
     MediaType,
     MediaPlayerEntityFeature,
+    RepeatMode,
 )
 from homeassistant.const import (
     CONF_HOST,
@@ -238,6 +239,8 @@ class LibratoneZippDevice(MediaPlayerEntity):
         features = SUPPORT_LIBRATONE_ZIPP | MediaPlayerEntityFeature.GROUPING
         if hasattr(self.zipp, "mute"):  # ZippExtended; the plain library cannot mute
             features |= MediaPlayerEntityFeature.VOLUME_MUTE
+        if getattr(self.zipp, "supports_play_mode", False):  # the active source accepts shuffle / repeat
+            features |= MediaPlayerEntityFeature.SHUFFLE_SET | MediaPlayerEntityFeature.REPEAT_SET
         return features
 
     @property
@@ -259,6 +262,29 @@ class LibratoneZippDevice(MediaPlayerEntity):
         """Name of the current input source."""
         return None
     '''
+
+    @property
+    def source(self):
+        """Active preset station while a preset plays; otherwise the kind of source (airplay, bluetooth, ...)."""
+        source_type = getattr(self.zipp, "source_type", None)
+        if source_type == "preset":
+            return self.zipp.favorite_name(getattr(self.zipp, "play_identity", None)) or source_type
+        return None if source_type in (None, "none") else source_type
+
+    @property
+    def shuffle(self):
+        return getattr(self.zipp, "shuffle", None)
+
+    @property
+    def repeat(self):
+        repeat = getattr(self.zipp, "repeat", None)
+        return None if repeat is None else {"off": RepeatMode.OFF, "one": RepeatMode.ONE, "all": RepeatMode.ALL}[repeat]
+
+    def set_shuffle(self, shuffle):
+        return self.zipp.play_mode_set(shuffle, getattr(self.zipp, "repeat", None) or "off")
+
+    def set_repeat(self, repeat):
+        return self.zipp.play_mode_set(bool(getattr(self.zipp, "shuffle", None)), RepeatMode(repeat).value)
 
     @property
     def source_list(self):
