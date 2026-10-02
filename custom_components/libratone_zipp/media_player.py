@@ -73,7 +73,7 @@ async def async_setup_entry(
     """Set up from a config entry."""
     zipp_client = hass.data[DOMAIN][entry.entry_id]
     name = entry.title or entry.data.get(CONF_NAME) or DEFAULT_NAME
-    async_add_entities([LibratoneZippDevice(zipp_client, name)])
+    async_add_entities([LibratoneZippDevice(zipp_client, name, has_device=True)])
 
 def setup_platform(hass, config, add_entities, discover_info=None):
     """Set up Libratone Zipp"""
@@ -106,10 +106,13 @@ def setup_platform(hass, config, add_entities, discover_info=None):
 class LibratoneZippDevice(MediaPlayerEntity):
     """Representation of a Libratone Zipp speaker."""
 
-    def __init__(self, zipp_client, name):
+    def __init__(self, zipp_client, name, has_device=False):
         """Initialize a new Libratone Zipp device"""
         self.zipp = zipp_client
         self._name = name
+        # Created from a config entry: the entity is the main entity of its device, so HA names
+        # it after the device ("Zipp2") instead of prefixing the device name to the speaker name.
+        self._has_device = has_device
         self._device_name = name  # fixed name for the device registry (self._name follows the speaker)
 
         self._device_type = DEVICE_CLASS_SPEAKER
@@ -191,9 +194,13 @@ class LibratoneZippDevice(MediaPlayerEntity):
 
 
     @property
+    def has_entity_name(self):
+        return self._has_device
+
+    @property
     def name(self):
         """Return the name of the device."""
-        return self._name
+        return None if self._has_device else self._name
 
     @property
     def state(self):
